@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"time"
 
 	"log"
 
@@ -14,6 +15,7 @@ import (
 
 func main() {
 	fmt.Println("tfcomm")
+	t0 := time.Now()
 
 	state := terraform.InstanceState{
 		Ephemeral: terraform.EphemeralState{
@@ -43,10 +45,35 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	// Upload
+	f, err := os.Open("./bin/debian/facter")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	err = comm.Upload("./facter/facter", f)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// output buffers for SSH
 	var outBuf, errBuf bytes.Buffer
 
 	cmd := remote.Cmd{
-		Command: "FACTERLIB=~/facter facter -j",
+		Command: "chmod +x ./facter/facter",
+		Stdin:   os.Stdin,
+		Stdout:  &outBuf,
+		Stderr:  &errBuf,
+	}
+
+	err = comm.Start(&cmd)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	cmd.Wait()
+
+	cmd = remote.Cmd{
+		Command: "FACTERLIB=~/facter ./facter/facter -j",
 		Stdin:   os.Stdin,
 		Stdout:  &outBuf,
 		Stderr:  &errBuf,
@@ -59,8 +86,23 @@ func main() {
 	cmd.Wait()
 	fmt.Println(outBuf.String())
 
+	cmd = remote.Cmd{
+		Command: "rm -r ./facter",
+		Stdin:   os.Stdin,
+		Stdout:  &outBuf,
+		Stderr:  &errBuf,
+	}
+
+	err = comm.Start(&cmd)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	cmd.Wait()
+
 	comm.Disconnect()
 
+	t1 := time.Now()
+	fmt.Printf("Duration %v\n", t1.Sub(t0))
 }
 
 func spew(msg string) {
