@@ -3,14 +3,15 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	"log"
 
-	"github.com/hashicorp/terraform/communicator"
 	"github.com/hashicorp/terraform/communicator/remote"
 	"github.com/hashicorp/terraform/terraform"
+	"github.com/hpcloud/terraform/communicator"
 )
 
 func main() {
@@ -31,16 +32,17 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	ecom := extCommunicator{Communicator: comm}
 
 	var fspew = DebugSpewFunc(spew)
 
-	err = comm.Connect(fspew)
+	err = ecom.Connect(fspew)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	// UploadDir(dst, src)
-	err = comm.UploadDir(".", "./facter")
+	err = ecom.UploadDir(".", "./facter")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -51,58 +53,55 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	err = comm.Upload("./facter/facter", f)
+	err = ecom.Upload("./facter/facter", f)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
+	if err := ecom.execCmd(`chmod +x ./facter/facter`); err != nil {
+		log.Fatalln(err)
+	}
+
+	if err := ecom.execCmd(`FACTERLIB=~/facter ./facter/facter -j`); err != nil {
+		log.Fatalln(err)
+	}
+
+	if err := ecom.execCmd(`rm -r ./facter`); err != nil {
+		log.Fatalln(err)
+	}
+
+	ecom.Disconnect()
+
+	t1 := time.Now()
+	fmt.Printf("Duration %v\n", t1.Sub(t0))
+
+}
+
+type extCommunicator struct {
+	communicator.Communicator
+}
+
+func (c extCommunicator) execCmd(command string) error {
 	// output buffers for SSH
 	var outBuf, errBuf bytes.Buffer
 
 	cmd := remote.Cmd{
-		Command: "chmod +x ./facter/facter",
+		Command: command,
 		Stdin:   os.Stdin,
 		Stdout:  &outBuf,
 		Stderr:  &errBuf,
 	}
 
-	err = comm.Start(&cmd)
+	err := c.Start(&cmd)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	cmd.Wait()
 
-	cmd = remote.Cmd{
-		Command: "FACTERLIB=~/facter ./facter/facter -j",
-		Stdin:   os.Stdin,
-		Stdout:  &outBuf,
-		Stderr:  &errBuf,
-	}
+	go io.Copy(os.Stdout, &outBuf)
+	go io.Copy(os.Stderr, &errBuf)
 
-	err = comm.Start(&cmd)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	cmd.Wait()
-	fmt.Println(outBuf.String())
-
-	cmd = remote.Cmd{
-		Command: "rm -r ./facter",
-		Stdin:   os.Stdin,
-		Stdout:  &outBuf,
-		Stderr:  &errBuf,
-	}
-
-	err = comm.Start(&cmd)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	cmd.Wait()
-
-	comm.Disconnect()
-
-	t1 := time.Now()
-	fmt.Printf("Duration %v\n", t1.Sub(t0))
+	return nil
 }
 
 func spew(msg string) {
