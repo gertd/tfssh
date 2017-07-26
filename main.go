@@ -34,7 +34,7 @@ func main() {
 	}
 	ecom := extCommunicator{Communicator: comm}
 
-	var fspew = DebugSpewFunc(spew)
+	var fspew = debugSpewFunc(spew)
 
 	err = ecom.Connect(fspew)
 	if err != nil {
@@ -108,10 +108,8 @@ func spew(msg string) {
 	log.Println(msg)
 }
 
-// DebugSpewFunc --
-type DebugSpewFunc func(string)
+type debugSpewFunc func(string)
 
-// Output -- spew implementation function
-func (f DebugSpewFunc) Output(msg string) {
+func (f debugSpewFunc) Output(msg string) {
 	f(msg)
 }
